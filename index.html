@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>3D Game Maker</title>
 <style>
-  body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: sans-serif; background: #1f2026; color: #eee; }
-  .toolbar { position: absolute; top: 0; left: 0; width: 250px; height: 100%; background: #222; padding: 10px; box-sizing: border-box; overflow-y: auto; }
-  .canvas-container { position: absolute; top: 0; left: 250px; right: 250px; bottom: 0; background: #20232a; }
-  .inspector { position: absolute; top: 0; right: 0; width: 250px; height: 100%; background: #222; padding: 10px; box-sizing: border-box; overflow-y: auto; }
-  button { margin: 2px; padding: 5px 10px; border: none; cursor: pointer; background: #444; color: #eee; }
-  button:hover { background: #666; }
-  input { width: 60px; margin-right: 3px; background: #333; color: #eee; border: 1px solid #555; padding: 2px; }
-  .selected { background: rgba(100,100,255,0.3); }
+body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: sans-serif; background: #1f2026; color: #eee; }
+.toolbar { position: absolute; top: 0; left: 0; width: 250px; height: 100%; background: #222; padding: 10px; box-sizing: border-box; overflow-y: auto; }
+.canvas-container { position: absolute; top: 0; left: 250px; right: 250px; bottom: 0; background: #20232a; }
+.inspector { position: absolute; top: 0; right: 0; width: 250px; height: 100%; background: #222; padding: 10px; box-sizing: border-box; overflow-y: auto; }
+button { margin: 2px; padding: 5px 10px; border: none; cursor: pointer; background: #444; color: #eee; }
+button:hover { background: #666; }
+input { width: 60px; margin-right: 3px; background: #333; color: #eee; border: 1px solid #555; padding: 2px; }
+.selected { background: rgba(100,100,255,0.3); }
 </style>
 </head>
 <body>
@@ -68,6 +68,7 @@ animate();
 
 function init() {
   renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(container.clientWidth, container.clientHeight);
   container.appendChild(renderer.domElement);
 
@@ -311,6 +312,7 @@ function loadSceneFile(file){
         objects.push({id: mesh.name, name: it.name||mesh.name, type: it.type});
       });
       selectedId=null;
+      transformControls.detach();
       updateObjectList();
       updateInspector();
     }catch(err){
