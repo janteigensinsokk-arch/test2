@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Game Maker</title>
+<style>
+  body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1f2026; color: #eee; font-family: sans-serif; }
+  .toolbar { position: absolute; top: 0; left: 0; width: 250px; height: 100%; background: #222; padding: 10px; box-sizing: border-box; overflow-y: auto; }
+  .canvas-container { position: absolute; top: 0; left: 250px; right: 250px; bottom: 0; }
+  .inspector { position: absolute; top: 0; right: 0; width: 250px; height: 100%; background: #222; padding: 10px; box-sizing: border-box; overflow-y: auto; }
+  button { margin: 2px; padding: 5px 10px; border: none; cursor: pointer; }
+  input { width: 60px; margin-right: 3px; }
+  .selected { background: rgba(100,100,255,0.3); }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h3>Game Maker</h3>
+  <div>
+    <button id="addBox">Add Box</button>
+    <button id="addSphere">Add Sphere</button>
+    <button id="addPlane">Add Plane</button>
+    <button id="delete" disabled>Delete</button>
+  </div>
+  <div style="margin-top:10px;">
+    <strong>Transform Mode:</strong><br>
+    <button id="modeTranslate">T</button>
+    <button id="modeRotate">R</button>
+    <button id="modeScale">S</button>
+  </div>
+  <div style="margin-top:10px;">
+    <strong>Scene Objects:</strong>
+    <div id="objectList" style="max-height: 200px; overflow-y: auto; background:#333; padding:5px;"></div>
+  </div>
+  <div style="margin-top:10px;">
+    <button id="playStop">Play</button>
+    <button id="saveScene">Save</button>
+    <input type="file" id="loadScene" accept="application/json">
+  </div>
+</div>
+
+<div class="canvas-container" id="canvasContainer"></div>
+
+<div class="inspector">
+  <h4>Inspector</h4>
+  <div id="inspectorContent">No object selected</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.162.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.162.0/examples/js/controls/TransformControls.js"></script>
+
+<script>
+let scene, camera, renderer, controls, transformControls;
+let objects = [];
+let selectedId = null;
+let transformMode = 'translate';
+let mode = 'edit';
+let physState = {};
+
+const container = document.getElementById('canvasContainer');
+
+init();
+animate();
+
+function init() {
+  // Renderer
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  container.appendChild(renderer.domElement);
+
+  // Scene
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x20232a);
+
+  // Camera
+  camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 1000);
+  camera.position.set(4,4,6);
+
+  // Lights
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x444455, 0.8);
+  scene.add(hemi);
+  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+  dir.position.set(5,10,7);
+  scene.add(dir);
+
+  // Ground
+  const groundMat = new THREE.MeshStandardMaterial({ color: 0x121214, metalness:0.1, roughness:0.9 });
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200,200), groundMat);
+  ground.rotation.x = -Math.PI/2;
+  ground.position.y = -1;
+  ground.receiveShadow = true;
+  ground.name = '__ground__';
+  scene.add(ground);
+
+  // Controls
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+
+  // TransformControls
+  transformControls = new THREE.TransformControls(camera, renderer.domElement);
+  transformControls.addEventListener('change', ()=>renderer.render(scene,camera));
+  transformControls.addEventListener('dragging-changed', e=>controls.enabled = !e.value);
+  scene.add(transformControls);
+
+  // Resize
+  window.addEventListener('resize', ()=>{
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    camera.aspect = container.clientWidth / container.clientHeight;
+    camera.updateProjectionMatrix();
+  });
+
+  // UI events
+  document.getElementById('addBox').onclick = ()=>addPrimitive('box');
+  document.getElementById('addSphere').onclick = ()=>addPrimitive('sphere');
+  document.getElementById('addPlane').onclick = ()=>addPrimitive('plane');
+  document.getElementById('delete').onclick = deleteSelected;
+  document.getElementById('modeTranslate').onclick = ()=>setTransformMode('translate');
+  document.getElementById('modeRotate').onclick = ()=>setTransformMode('rotate');
+  document.getElementById('modeScale').onclick = ()=>setTransformMode('scale');
+  document.getElementById('playStop').onclick = togglePlay;
+  document.getElementById('saveScene').onclick = saveScene;
+  document.getElementById('loadScene').onchange = e=>{
+    if(e.target.files[0]) loadSceneFile(e.target.files[0]);
+  };
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  if(mode==='play') {
+    const dt = 0.016;
+    for(const id in physState) {
+      let state = physState[id];
+      state.vy -= 9.81*dt;
+      state.y += state.vy*dt;
+      if(state.y - state.radius < -1){
+        state.y = -1 + state.radius;
+        state.vy *= -0.35;
+        if(Math.abs(state.vy)<0.5) state.vy=0;
+      }
+      const obj = scene.getObjectByName(id);
+      if(obj) obj.position.y = state.y;
+    }
+  }
+  controls.update();
+  renderer.render(scene,camera);
+}
+
+// --- Object management ---
+function addPrimitive(kind){
+  let geom;
+  if(kind==='box') geom = new THREE.BoxGeometry(1,1,1);
+  else if(kind==='sphere') geom = new THREE.SphereGeometry(0.6,24,24);
+  else if(kind==='plane') geom = new THREE.PlaneGeometry(2,2);
+  else return;
+
+  const mat = new THREE.MeshStandardMaterial({color: Math.random()*0xffffff});
+  const mesh = new THREE.Mesh(geom, mat);
+  const id = 'obj-'+Math.random().toString(36).substr(2,7);
+  mesh.name = id;
+  mesh.position.set((Math.random()-0.5)*3, 0.5, (Math.random()-0.5)*3);
+  scene.add(mesh);
+
+  objects.push({id, name: kind+'-'+objects.length+1, type: kind});
+  selectObject(id);
+  updateObjectList();
+}
+
+function selectObject(id){
+  selectedId = id;
+  transformControls.detach();
+  const obj = scene.getObjectByName(id);
+  if(obj) transformControls.attach(obj);
+  document.getElementById('delete').disabled = !selectedId;
+  updateInspector();
+  updateObjectList();
+}
+
+function deleteSelected(){
+  if(!selectedId) return;
+  const obj = scene.getObjectByName(selectedId);
+  if(obj){
+    if(obj.geometry) obj.geometry.dispose();
+    if(obj.material) obj.material.dispose();
+    scene.remove(obj);
+  }
+  objects = objects.filter(o=>o.id!==selectedId);
+  selectedId = null;
+  transformControls.detach();
+  document.getElementById('delete').disabled = true;
+  updateInspector();
+  updateObjectList();
+}
+
+function setTransformMode(mode){
+  transformMode = mode;
+  transformControls.setMode(mode);
+}
+
+// --- UI Updates ---
+function updateObjectList(){
+  const container = document.getElementById('objectList');
+  container.innerHTML = '';
+  objects.forEach(o=>{
+    const div = document.createElement('div');
+    div.textContent = o.name + ' ('+o.type+')';
+    div.className = (o.id===selectedId?'selected':'');
+    div.style.cursor = 'pointer';
+    div.onclick = ()=>selectObject(o.id);
+    container.appendChild(div);
+  });
+}
+
+// --- Inspector ---
+function updateInspector(){
+  const container = document.getElementById('inspectorContent');
+  container.innerHTML = '';
+  if(!selectedId){ container.textContent = 'No object selected'; return; }
+  const obj = scene.getObjectByName(selectedId);
+  if(!obj) return;
+
+  const pos = ['x','y','z'].map(ax=>{
+    const input = document.createElement('input');
+    input.value = obj.position[ax].toFixed(2);
+    input.onchange = ()=>{ obj.position[ax] = parseFloat(input.value)||0; };
+    return input;
+  });
+  const rot = ['x','y','z'].map(ax=>{
+    const input = document.createElement('input');
+    input.value = obj.rotation[ax].toFixed(2);
+    input.onchange = ()=>{ obj.rotation[ax] = parseFloat(input.value)||0; };
+    return input;
+  });
+  const scale = ['x','y','z'].map(ax=>{
+    const input = document.createElement('input');
+    input.value = obj.scale[ax].toFixed(2);
+    input.onchange = ()=>{ obj.scale[ax] = parseFloat(input.value)||1; };
+    return input;
+  });
+
+  container.appendChild(document.createTextNode('Position:'));
+  pos.forEach(i=>container.appendChild(i));
+  container.appendChild(document.createElement('br'));
+  container.appendChild(document.createTextNode('Rotation:'));
+  rot.forEach(i=>container.appendChild(i));
+  container.appendChild(document.createElement('br'));
+  container.appendChild(document.createTextNode('Scale:'));
+  scale.forEach(i=>container.appendChild(i));
+  container.appendChild(document.createElement('br'));
+  const btn = document.createElement('button');
+  btn.textContent = 'Apply';
+  btn.onclick = ()=>{ transformControls.updateMatrixWorld(); };
+  container.appendChild(btn);
+}
+
+// --- Play / Stop ---
+function togglePlay(){
+  if(mode==='play'){
+    mode='edit';
+    physState={};
+    document.getElementById('playStop').textContent='Play';
+  }else{
+    mode='play';
+    physState={};
+    objects.forEach(o=>{
+      const obj = scene.getObjectByName(o.id);
+      const r = Math.max(obj.scale.x,obj.scale.y,obj.scale.z)*0.5+0.1;
+      physState[o.id] = {y: obj.position.y, vy:0, radius:r};
+    });
+    document.getElementById('playStop').textContent='Stop';
+  }
+}
+
+// --- Save / Load ---
+function saveScene(){
+  const arr = objects.map(o=>{
+    const obj = scene.getObjectByName(o.id);
+    return {
+      id:o.id,
+      name:o.name,
+      type:o.type,
+      position: obj.position.toArray(),
+      rotation:[obj.rotation.x,obj.rotation.y,obj.rotation.z],
+      scale: obj.scale.toArray(),
+      color: obj.material?obj.material.color.getHex():0xffffff
+    };
+  });
+  const blob = new Blob([JSON.stringify(arr,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download='scene.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function loadSceneFile(file){
+  const reader = new FileReader();
+  reader.onload = e=>{
+    try{
+      const arr = JSON.parse(e.target.result);
+      // clear current objects
+      objects.forEach(o=>{
+        const obj = scene.getObjectByName(o.id);
+        if(obj){
+          if(obj.geometry) obj.geometry.dispose();
+          if(obj.material) obj.material.dispose();
+          scene.remove(obj);
+        }
+      });
+      objects=[];
+      arr.forEach(it=>{
+        let geom;
+        if(it.type==='box') geom=new THREE.BoxGeometry(1,1,1);
+        else if(it.type==='sphere') geom=new THREE.SphereGeometry(0.6,24,24);
+        else if(it.type==='plane') geom=new THREE.PlaneGeometry(2,2);
+        else return;
+        const mat = new THREE.MeshStandardMaterial({color: it.color||0x88c0ff});
+        const mesh = new THREE.Mesh(geom, mat);
+        mesh.name = it.id || 'obj-'+Math.random().toString(36).substr(2,7);
+        if(it.position) mesh.position.fromArray(it.position);
+        if(it.rotation) mesh.rotation.set(it.rotation[0],it.rotation[1],it.rotation[2]);
+        if(it.scale) mesh.scale.fromArray(it.scale);
+        scene.add(mesh);
+        objects.push({id: mesh.name, name: it.name||mesh.name, type: it.type});
+      });
+      selectedId=null;
+      updateObjectList();
+      updateInspector();
+    }catch(err){
+      alert('Failed to load scene: '+err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+</script>
+
+</body>
+</html>
