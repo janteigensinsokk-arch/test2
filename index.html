@@ -5,12 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>3D Game Maker</title>
 <style>
-  body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1f2026; color: #eee; font-family: sans-serif; }
+  body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: sans-serif; background: #1f2026; color: #eee; }
   .toolbar { position: absolute; top: 0; left: 0; width: 250px; height: 100%; background: #222; padding: 10px; box-sizing: border-box; overflow-y: auto; }
-  .canvas-container { position: absolute; top: 0; left: 250px; right: 250px; bottom: 0; }
+  .canvas-container { position: absolute; top: 0; left: 250px; right: 250px; bottom: 0; background: #20232a; }
   .inspector { position: absolute; top: 0; right: 0; width: 250px; height: 100%; background: #222; padding: 10px; box-sizing: border-box; overflow-y: auto; }
-  button { margin: 2px; padding: 5px 10px; border: none; cursor: pointer; }
-  input { width: 60px; margin-right: 3px; }
+  button { margin: 2px; padding: 5px 10px; border: none; cursor: pointer; background: #444; color: #eee; }
+  button:hover { background: #666; }
+  input { width: 60px; margin-right: 3px; background: #333; color: #eee; border: 1px solid #555; padding: 2px; }
   .selected { background: rgba(100,100,255,0.3); }
 </style>
 </head>
@@ -66,53 +67,42 @@ init();
 animate();
 
 function init() {
-  // Renderer
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(container.clientWidth, container.clientHeight);
   container.appendChild(renderer.domElement);
 
-  // Scene
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x20232a);
 
-  // Camera
   camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 1000);
   camera.position.set(4,4,6);
 
-  // Lights
   const hemi = new THREE.HemisphereLight(0xffffff, 0x444455, 0.8);
   scene.add(hemi);
   const dir = new THREE.DirectionalLight(0xffffff, 0.8);
   dir.position.set(5,10,7);
   scene.add(dir);
 
-  // Ground
-  const groundMat = new THREE.MeshStandardMaterial({ color: 0x121214, metalness:0.1, roughness:0.9 });
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200,200), groundMat);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200,200), new THREE.MeshStandardMaterial({ color: 0x121214, metalness:0.1, roughness:0.9 }));
   ground.rotation.x = -Math.PI/2;
   ground.position.y = -1;
-  ground.receiveShadow = true;
   ground.name = '__ground__';
   scene.add(ground);
 
-  // Controls
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
 
-  // TransformControls
   transformControls = new THREE.TransformControls(camera, renderer.domElement);
   transformControls.addEventListener('change', ()=>renderer.render(scene,camera));
   transformControls.addEventListener('dragging-changed', e=>controls.enabled = !e.value);
   scene.add(transformControls);
 
-  // Resize
   window.addEventListener('resize', ()=>{
     renderer.setSize(container.clientWidth, container.clientHeight);
     camera.aspect = container.clientWidth / container.clientHeight;
     camera.updateProjectionMatrix();
   });
 
-  // UI events
   document.getElementById('addBox').onclick = ()=>addPrimitive('box');
   document.getElementById('addSphere').onclick = ()=>addPrimitive('sphere');
   document.getElementById('addPlane').onclick = ()=>addPrimitive('plane');
@@ -148,7 +138,6 @@ function animate() {
   renderer.render(scene,camera);
 }
 
-// --- Object management ---
 function addPrimitive(kind){
   let geom;
   if(kind==='box') geom = new THREE.BoxGeometry(1,1,1);
@@ -199,7 +188,6 @@ function setTransformMode(mode){
   transformControls.setMode(mode);
 }
 
-// --- UI Updates ---
 function updateObjectList(){
   const container = document.getElementById('objectList');
   container.innerHTML = '';
@@ -213,7 +201,6 @@ function updateObjectList(){
   });
 }
 
-// --- Inspector ---
 function updateInspector(){
   const container = document.getElementById('inspectorContent');
   container.innerHTML = '';
@@ -255,7 +242,6 @@ function updateInspector(){
   container.appendChild(btn);
 }
 
-// --- Play / Stop ---
 function togglePlay(){
   if(mode==='play'){
     mode='edit';
@@ -273,7 +259,6 @@ function togglePlay(){
   }
 }
 
-// --- Save / Load ---
 function saveScene(){
   const arr = objects.map(o=>{
     const obj = scene.getObjectByName(o.id);
@@ -301,7 +286,6 @@ function loadSceneFile(file){
   reader.onload = e=>{
     try{
       const arr = JSON.parse(e.target.result);
-      // clear current objects
       objects.forEach(o=>{
         const obj = scene.getObjectByName(o.id);
         if(obj){
